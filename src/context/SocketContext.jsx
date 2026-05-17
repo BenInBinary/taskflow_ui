@@ -6,13 +6,14 @@
 // Also provides an unread count for the sidebar badge.
 // ──────────────────────────────────────────────
 
-import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import { listNotifications } from '../api/notifications';
 import toast from 'react-hot-toast';
 import { renderNotificationText } from '../utils/notificationText';
 
-const SOCKET_URL = 'http://localhost:3000';
+const SOCKET_URL = import.meta.env.VITE_API_BASE || 'http://localhost:3000';
 
 const SocketContext = createContext(null);
 
@@ -23,6 +24,18 @@ export function SocketProvider({ children }) {
   // Real-time notifications received via WebSocket
   const [liveNotifications, setLiveNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // Fetch initial unread count from REST API on login
+  useEffect(() => {
+    if (!user) return;
+    listNotifications(1, 1, true)
+      .then(data => {
+        // API returns { data, total, page, limit } — total is the unread count
+        const total = typeof data.total === 'number' ? data.total : (Array.isArray(data) ? data.length : 0);
+        setUnreadCount(total);
+      })
+      .catch(() => { /* ignore */ });
+  }, [user]);
 
   // Connect when user logs in, disconnect on logout
   useEffect(() => {
@@ -89,13 +102,16 @@ export function SocketProvider({ children }) {
     setUnreadCount(0);
   }, []);
 
+  // Memoize context value to prevent unnecessary re-renders on tab switches
+  const value = useMemo(() => ({
+    socket: socketRef.current,
+    liveNotifications,
+    unreadCount,
+    resetUnreadCount,
+  }), [liveNotifications, unreadCount, resetUnreadCount]);
+
   return (
-    <SocketContext.Provider value={{
-      socket: socketRef.current,
-      liveNotifications,
-      unreadCount,
-      resetUnreadCount,
-    }}>
+    <SocketContext.Provider value={value}>
       {children}
     </SocketContext.Provider>
   );
